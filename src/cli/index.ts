@@ -18,7 +18,7 @@ class SecuritasCLI {
   private running = true;
 
   constructor() {
-    this.client = new SecuritasDirectClient();
+    this.client = new SecuritasDirectClient('GB'); // Default to UK
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -166,15 +166,15 @@ class SecuritasCLI {
       console.log('\n🏢 Installations:');
       console.log('─────────────────');
       installations.forEach((inst, index) => {
-        console.log(`\n${index + 1}. ${inst.name}`);
-        console.log(`   ID: ${inst.installationId}`);
-        console.log(`   Address: ${inst.address}`);
-        console.log(`   Devices: ${inst.devices?.length || 0}`);
+        console.log(`\n${index + 1}. ${inst.alias || inst.name}`);
+        console.log(`   Number: ${inst.numinst}`);
+        console.log(`   Panel: ${inst.panel}`);
+        console.log(`   Address: ${inst.address}, ${inst.city}`);
       });
 
       // Store the first installation ID
       if (installations.length > 0) {
-        this.config.installationId = installations[0].installationId;
+        this.config.installationId = installations[0].numinst;
         this.saveConfig();
       }
     } catch (error) {
@@ -195,15 +195,13 @@ class SecuritasCLI {
 
       console.log('\n🚨 Alarm Status:');
       console.log('────────────────');
-      console.log(`State: ${this.formatArmState(status.armState)}`);
       console.log(`Status: ${status.status}`);
-      console.log(`Last Activity: ${status.lastActivityTime}`);
-      console.log(`Activity Type: ${status.lastActivityType}`);
+      console.log(`Last Update: ${status.timestampUpdate}`);
 
-      if (status.events && status.events.length > 0) {
-        console.log('\n📝 Recent Events:');
-        status.events.slice(0, 5).forEach((event) => {
-          console.log(`   • [${event.eventTime}] ${event.eventType}: ${event.description}`);
+      if (status.exceptions && status.exceptions.length > 0) {
+        console.log(`\n⚠️  Exceptions (${status.exceptions.length}):`);
+        status.exceptions.slice(0, 5).forEach((exception) => {
+          console.log(`   • ${exception.alias}: ${exception.status} (${exception.deviceType})`);
         });
       }
     } catch (error) {
@@ -218,6 +216,14 @@ class SecuritasCLI {
     const installationId = await this.selectInstallation();
     if (!installationId) return;
 
+    // Get installations to find panel
+    const installations = await this.client.getInstallations();
+    const installation = installations.find(i => i.numinst === installationId);
+    if (!installation) {
+      console.log('❌ Installation not found');
+      return;
+    }
+
     console.log('\n🔐 Arm Options:');
     console.log('1. Full Arm');
     console.log('2. Night Mode');
@@ -225,18 +231,21 @@ class SecuritasCLI {
 
     const option = await this.question('Select arm mode (1-3): ');
     const armModes: { [key: string]: string } = {
-      '1': 'armed',
-      '2': 'armed_night',
-      '3': 'armed_partial',
+      '1': 'ARM1',
+      '2': 'ARMNIGHT',
+      '3': 'ARMDAY',
     };
 
-    const armMode = armModes[option] || 'armed';
+    const armMode = armModes[option] || 'ARM1';
 
     console.log(`\n⏳ Arming alarm (${armMode})...`);
     try {
-      const result = await this.client.arm(installationId, armMode);
+      const result = await this.client.arm(installationId, installation.panel, armMode);
       if (result.success) {
         console.log(`✅ ${result.message}`);
+        if (result.referenceId) {
+          console.log(`   Reference ID: ${result.referenceId}`);
+        }
       } else {
         console.log(`⚠️ ${result.message}`);
       }
@@ -252,6 +261,14 @@ class SecuritasCLI {
     const installationId = await this.selectInstallation();
     if (!installationId) return;
 
+    // Get installations to find panel
+    const installations = await this.client.getInstallations();
+    const installation = installations.find(i => i.numinst === installationId);
+    if (!installation) {
+      console.log('❌ Installation not found');
+      return;
+    }
+
     const confirm = await this.question(
       '⚠️  Are you sure you want to disarm the alarm? (y/n): '
     );
@@ -262,9 +279,12 @@ class SecuritasCLI {
 
     console.log('\n⏳ Disarming alarm...');
     try {
-      const result = await this.client.disarm(installationId);
+      const result = await this.client.disarm(installationId, installation.panel);
       if (result.success) {
         console.log(`✅ ${result.message}`);
+        if (result.referenceId) {
+          console.log(`   Reference ID: ${result.referenceId}`);
+        }
       } else {
         console.log(`⚠️ ${result.message}`);
       }
@@ -277,59 +297,18 @@ class SecuritasCLI {
    * Show devices
    */
   private async showDevices(): Promise<void> {
-    const installationId = await this.selectInstallation();
-    if (!installationId) return;
-
-    console.log('\n⏳ Fetching devices...');
-    try {
-      const devices = await this.client.getDevices(installationId);
-
-      if (!devices || devices.length === 0) {
-        console.log('No devices found.');
-        return;
-      }
-
-      console.log('\n📱 Devices:');
-      console.log('───────────');
-      devices.forEach((device: any) => {
-        const icon = this.getDeviceIcon(device.type);
-        console.log(
-          `${icon} ${device.name} (${device.type}) - ${this.formatDeviceStatus(device.status)}`
-        );
-        console.log(`   Last Update: ${device.lastUpdate}`);
-      });
-    } catch (error) {
-      this.handleError(error);
-    }
+    console.log('\n⚠️  Device listing not yet implemented in GraphQL API');
+    console.log('This feature will be added in a future update.\n');
+    return;
   }
 
   /**
    * Show events history
    */
   private async showEvents(): Promise<void> {
-    const installationId = await this.selectInstallation();
-    if (!installationId) return;
-
-    console.log('\n⏳ Fetching events...');
-    try {
-      const events = await this.client.getEvents(installationId, 20);
-
-      if (!events || events.length === 0) {
-        console.log('No events found.');
-        return;
-      }
-
-      console.log('\n📜 Event History:');
-      console.log('────────────────');
-      events.forEach((event: any) => {
-        const time = event.eventTime || event.timestamp || 'N/A';
-        const type = event.eventType || event.type || 'Unknown';
-        const desc = event.description || event.msg || '';
-        console.log(`[${time}] ${type} ${desc ? ': ' + desc : ''}`);
-      });
-    } catch (error) {
-      this.handleError(error);
-    }
+    console.log('\n⚠️  Event history not yet implemented in GraphQL API');
+    console.log('This feature will be added in a future update.\n');
+    return;
   }
 
   /**
@@ -393,19 +372,19 @@ class SecuritasCLI {
       }
 
       if (installations.length === 1) {
-        return installations[0].installationId;
+        return installations[0].numinst;
       }
 
       console.log('\n🏢 Select Installation:');
       installations.forEach((inst, index) => {
-        console.log(`${index + 1}. ${inst.name}`);
+        console.log(`${index + 1}. ${inst.alias || inst.name}`);
       });
 
       const choice = await this.question('\nSelection: ');
       const index = parseInt(choice) - 1;
 
       if (index >= 0 && index < installations.length) {
-        const selected = installations[index].installationId;
+        const selected = installations[index].numinst;
         this.config.installationId = selected;
         this.saveConfig();
         return selected;

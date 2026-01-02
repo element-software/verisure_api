@@ -5,23 +5,53 @@ import {
   AuthenticationResponse,
   AlarmStatus,
   CommandResponse,
-  InstallationInfo,
+  Installation,
   ApiError,
+  DeviceInfo,
+  GraphQLRequest,
+  LoginTokenResponse,
+  InstallationListResponse,
+  StatusResponse,
+  ArmDisarmResponse,
 } from './types';
-import { API_BASE_URL, API_TIMEOUT, ENDPOINTS, ERROR_CODES } from './constants';
+import { API_BASE_URL, API_TIMEOUT, GRAPHQL_OPERATIONS, DEVICE_CONFIG } from './constants';
+import {
+  generateUUID,
+  generateDeviceId,
+  generateIndigitallId,
+  generateRequestId,
+  getTimestamp,
+} from './utils';
 
 export class SecuritasDirectClient {
   private client: AxiosInstance;
   private session: SessionData | null = null;
   private credentials: SecuritasCredentials | null = null;
+  private deviceInfo: DeviceInfo;
+  private country: string;
 
-  constructor() {
+  constructor(country: string = 'GB') {
+    this.country = country;
+    
+    // Initialize device info
+    this.deviceInfo = {
+      deviceId: generateDeviceId(country),
+      uuid: generateUUID(),
+      idDeviceIndigitall: generateIndigitallId(),
+      deviceBrand: DEVICE_CONFIG.BRAND,
+      deviceName: DEVICE_CONFIG.NAME,
+      deviceOsVersion: DEVICE_CONFIG.OS_VERSION,
+      deviceType: DEVICE_CONFIG.TYPE,
+      deviceVersion: DEVICE_CONFIG.VERSION,
+      deviceResolution: DEVICE_CONFIG.RESOLUTION,
+    };
+
     this.client = axios.create({
       baseURL: API_BASE_URL,
       timeout: API_TIMEOUT,
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'SecuritasDirectAPI/1.0.0',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.124 Safari/537.36',
       },
     });
 
@@ -33,38 +63,109 @@ export class SecuritasDirectClient {
   }
 
   /**
-   * Authenticate with Securitas Direct API
+   * Execute a GraphQL request
+   */
+  private async executeGraphQL<T = any>(
+    operationName: string,
+    query: string,
+    variables: Record<string, any> = {}
+  ): Promise<T> {
+    const payload: GraphQLRequest = {
+      operationName,
+      variables,
+      query,
+    };
+
+    const headers: Record<string, string> = {
+      'X-APOLLO-OPERATION-NAME': operationName,
+    };
+
+    // Add authentication headers if we have a session
+    if (this.session) {
+      const authHeader = {
+        loginTimestamp: this.session.loginTimestamp,
+        user: this.credentials?.username || '',
+        id: generateRequestId(this.credentials?.username || ''),
+        country: this.country,
+        lang: 'en',
+        callby: DEVICE_CONFIG.CALLBY,
+        hash: this.session.hash,
+      };
+      headers['auth'] = JSON.stringify(authHeader);
+    }
+
+    const response = await this.client.post<T>('', payload, { headers });
+    return response.data;
+  }
+
+  /**
+   * Authenticate with Securitas Direct API using GraphQL
    */
   async authenticate(credentials: SecuritasCredentials): Promise<AuthenticationResponse> {
     try {
       this.credentials = credentials;
-      const response = await this.client.post<any>(ENDPOINTS.AUTH, {
-        username: credentials.username,
-        password: credentials.password,
-      });
+      this.country = credentials.country || this.country;
 
-      const data = response.data;
+      const variables = {
+        user: credentials.username,
+        password: credentials.password,
+        id: generateRequestId(credentials.username),
+        country: this.country,
+        lang: 'en',
+        callby: DEVICE_CONFIG.CALLBY,
+        idDevice: this.deviceInfo.deviceId,
+        idDeviceIndigitall: this.deviceInfo.idDeviceIndigitall,
+        deviceType: this.deviceInfo.deviceType,
+        deviceVersion: this.deviceInfo.deviceVersion,
+        deviceResolution: this.deviceInfo.deviceResolution,
+        deviceName: this.deviceInfo.deviceName,
+        deviceBrand: this.deviceInfo.deviceBrand,
+        deviceOsVersion: this.deviceInfo.deviceOsVersion,
+        uuid: this.deviceInfo.uuid,
+      };
+
+      const response = await this.executeGraphQL<LoginTokenResponse>(
+        GRAPHQL_OPERATIONS.LOGIN.operationName,
+        GRAPHQL_OPERATIONS.LOGIN.query,
+        variables
+      );
+
+      // Check if we have a valid response structure
+      if (!response || !response.data || !response.data.xSLoginToken) {
+        console.error('Invalid response structure:', JSON.stringify(response, null, 2));
+        return {
+          success: false,
+          message: 'Invalid response from server. Response: ' + JSON.stringify(response),
+        };
+      }
+
+      const loginData = response.data.xSLoginToken;
+
+      // Check if login was successful
+      if (loginData.res !== 'OK' && !loginData.hash) {
+        return {
+          success: false,
+          message: loginData.msg || 'Authentication failed',
+        };
+      }
 
       // Create session data
       this.session = {
-        customerId: data.customerId || data.userId || '',
-        sessionId: data.sessionId || data.token || '',
-        sessionExpires: new Date(Date.now() + 3600000), // 1 hour
+        hash: loginData.hash,
+        refreshToken: loginData.refreshToken,
+        loginTimestamp: getTimestamp(),
         authenticated: true,
       };
 
-      // Update client headers with session token
-      if (this.session.sessionId) {
-        this.client.defaults.headers.common['Authorization'] = `Bearer ${this.session.sessionId}`;
-      }
-
       return {
         success: true,
-        message: 'Authentication successful',
-        sessionId: this.session.sessionId,
-        customerId: this.session.customerId,
+        message: loginData.msg || 'Authentication successful',
+        hash: loginData.hash,
+        refreshToken: loginData.refreshToken,
       };
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Authentication error:', error);
+      console.error('Error response:', error.response?.data);
       return {
         success: false,
         message: this.getErrorMessage(error),
@@ -98,11 +199,14 @@ export class SecuritasDirectClient {
   /**
    * Get installation information
    */
-  async getInstallations(): Promise<InstallationInfo[]> {
+  async getInstallations(): Promise<Installation[]> {
     this.checkAuthentication();
     try {
-      const response = await this.client.get<InstallationInfo[]>(ENDPOINTS.INSTALLATIONS);
-      return response.data;
+      const response = await this.executeGraphQL<InstallationListResponse>(
+        GRAPHQL_OPERATIONS.LIST_INSTALLATIONS.operationName,
+        GRAPHQL_OPERATIONS.LIST_INSTALLATIONS.query
+      );
+      return response.data.xSInstallations.installations;
     } catch (error) {
       throw this.handleError(error);
     }
@@ -111,13 +215,15 @@ export class SecuritasDirectClient {
   /**
    * Get alarm status for an installation
    */
-  async getStatus(installationId: string): Promise<AlarmStatus> {
+  async getStatus(installationNumber: string): Promise<AlarmStatus> {
     this.checkAuthentication();
     try {
-      const response = await this.client.get<AlarmStatus>(
-        `${ENDPOINTS.STATUS}/${installationId}`
+      const response = await this.executeGraphQL<StatusResponse>(
+        GRAPHQL_OPERATIONS.STATUS.operationName,
+        GRAPHQL_OPERATIONS.STATUS.query,
+        { numinst: installationNumber }
       );
-      return response.data;
+      return response.data.xSStatus;
     } catch (error) {
       throw this.handleError(error);
     }
@@ -126,14 +232,31 @@ export class SecuritasDirectClient {
   /**
    * Arm the alarm system
    */
-  async arm(installationId: string, armMode: string = 'armed'): Promise<CommandResponse> {
+  async arm(
+    installationNumber: string,
+    panel: string,
+    armMode: string = 'ARM1',
+    currentStatus: string = ''
+  ): Promise<CommandResponse> {
     this.checkAuthentication();
     try {
-      const response = await this.client.post<CommandResponse>(
-        `${ENDPOINTS.ARM}/${installationId}`,
-        { armMode }
+      const response = await this.executeGraphQL<ArmDisarmResponse>(
+        GRAPHQL_OPERATIONS.ARM_PANEL.operationName,
+        GRAPHQL_OPERATIONS.ARM_PANEL.query,
+        {
+          numinst: installationNumber,
+          request: armMode,
+          panel: panel,
+          currentStatus: currentStatus,
+        }
       );
-      return response.data;
+
+      const armData = response.data.xSArmPanel;
+      return {
+        success: armData?.res === 'OK',
+        message: armData?.msg || '',
+        referenceId: armData?.referenceId,
+      };
     } catch (error) {
       throw this.handleError(error);
     }
@@ -142,44 +265,29 @@ export class SecuritasDirectClient {
   /**
    * Disarm the alarm system
    */
-  async disarm(installationId: string): Promise<CommandResponse> {
+  async disarm(
+    installationNumber: string,
+    panel: string,
+    disarmMode: string = 'DARM1'
+  ): Promise<CommandResponse> {
     this.checkAuthentication();
     try {
-      const response = await this.client.post<CommandResponse>(
-        `${ENDPOINTS.DISARM}/${installationId}`
+      const response = await this.executeGraphQL<ArmDisarmResponse>(
+        GRAPHQL_OPERATIONS.DISARM_PANEL.operationName,
+        GRAPHQL_OPERATIONS.DISARM_PANEL.query,
+        {
+          numinst: installationNumber,
+          request: disarmMode,
+          panel: panel,
+        }
       );
-      return response.data;
-    } catch (error) {
-      throw this.handleError(error);
-    }
-  }
 
-  /**
-   * Get devices for an installation
-   */
-  async getDevices(installationId: string) {
-    this.checkAuthentication();
-    try {
-      const response = await this.client.get(
-        `${ENDPOINTS.DEVICES}/${installationId}`
-      );
-      return response.data;
-    } catch (error) {
-      throw this.handleError(error);
-    }
-  }
-
-  /**
-   * Get events/history for an installation
-   */
-  async getEvents(installationId: string, limit: number = 50): Promise<any[]> {
-    this.checkAuthentication();
-    try {
-      const response = await this.client.get<any[]>(
-        `${ENDPOINTS.EVENTS}/${installationId}`,
-        { params: { limit } }
-      );
-      return response.data;
+      const disarmData = response.data.xSDisarmPanel;
+      return {
+        success: disarmData?.res === 'OK',
+        message: disarmData?.msg || '',
+        referenceId: disarmData?.referenceId,
+      };
     } catch (error) {
       throw this.handleError(error);
     }
@@ -207,7 +315,7 @@ export class SecuritasDirectClient {
   private checkAuthentication(): void {
     if (!this.isAuthenticated()) {
       const error: ApiError = {
-        code: ERROR_CODES.UNAUTHORIZED,
+        code: 'UNAUTHORIZED',
         message: 'Not authenticated. Please authenticate first.',
         statusCode: 401,
       };
@@ -223,13 +331,24 @@ export class SecuritasDirectClient {
       const status = error.response.status;
       const data = error.response.data;
 
-      let code: string = ERROR_CODES.SERVER_ERROR;
+      // Check for GraphQL errors
+      if (data.errors && Array.isArray(data.errors)) {
+        const graphqlError = data.errors[0];
+        const apiError: ApiError = {
+          code: graphqlError.extensions?.code || 'GRAPHQL_ERROR',
+          message: graphqlError.message || 'GraphQL error occurred',
+          statusCode: status,
+        };
+        throw apiError;
+      }
+
+      let code: string = 'SERVER_ERROR';
       if (status === 401) {
-        code = ERROR_CODES.INVALID_CREDENTIALS;
+        code = 'INVALID_CREDENTIALS';
       } else if (status === 404) {
-        code = ERROR_CODES.NOT_FOUND;
+        code = 'NOT_FOUND';
       } else if (status === 400) {
-        code = ERROR_CODES.INVALID_REQUEST;
+        code = 'INVALID_REQUEST';
       }
 
       const apiError: ApiError = {
@@ -240,14 +359,14 @@ export class SecuritasDirectClient {
       throw apiError;
     } else if (error.code === 'ECONNABORTED') {
       const apiError: ApiError = {
-        code: ERROR_CODES.NETWORK_ERROR,
+        code: 'NETWORK_ERROR',
         message: 'Request timeout',
         statusCode: 0,
       };
       throw apiError;
     } else if (error.message) {
       const apiError: ApiError = {
-        code: ERROR_CODES.NETWORK_ERROR,
+        code: 'NETWORK_ERROR',
         message: error.message,
         statusCode: 0,
       };
@@ -261,6 +380,11 @@ export class SecuritasDirectClient {
    * Get user-friendly error message
    */
   private getErrorMessage(error: any): string {
+    // Check for GraphQL errors
+    if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
+      return error.response.data.errors[0].message || 'GraphQL error occurred';
+    }
+    
     if (error.response?.data?.message) {
       return error.response.data.message;
     }
