@@ -32,7 +32,14 @@ await client.authenticate({
 
 1. **Create a `.env` file** (never commit this):
    ```bash
+   # Unix/Linux/macOS
    cp .env.example .env
+   
+   # Windows (Command Prompt)
+   copy .env.example .env
+   
+   # Windows (PowerShell)
+   Copy-Item .env.example .env
    ```
 
 2. **Set secure permissions**:
@@ -181,8 +188,8 @@ if (!username || !password) {
   throw new Error('Missing required credentials');
 }
 
-// Validate format
-if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) {
+// Validate email format (basic check)
+if (!username.includes('@')) {
   throw new Error('Invalid username format');
 }
 ```
@@ -212,8 +219,10 @@ try {
 // DON'T: Log credentials
 console.log('Authenticating with:', { username, password }); // NEVER
 
-// DO: Log sanitized information
-console.log('Authenticating user:', username.replace(/(.{3}).*(@.*)/, '$1***$2'));
+// DO: Log without revealing credentials
+console.log('Authenticating user...');
+// Or use a generic identifier that doesn't expose the username
+console.log('Authentication attempt');
 ```
 
 ## Incident Response

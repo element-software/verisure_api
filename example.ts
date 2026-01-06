@@ -22,7 +22,7 @@ async function main() {
   
   if (!username || !password) {
     console.error('Error: SECURITAS_USERNAME and SECURITAS_PASSWORD environment variables must be set');
-    console.error('Example: SECURITAS_USERNAME=your-email@example.com SECURITAS_PASSWORD=your-password node dist/example.js');
+    console.error('Please set these environment variables before running this example');
     process.exit(1);
   }
 

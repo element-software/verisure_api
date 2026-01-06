@@ -11,7 +11,7 @@ async function testLogin() {
   
   if (!username || !password) {
     console.error('Error: SECURITAS_USERNAME and SECURITAS_PASSWORD environment variables must be set');
-    console.error('Example: SECURITAS_USERNAME=your-email@example.com SECURITAS_PASSWORD=your-password npm run test-login');
+    console.error('Please set these environment variables before running this test');
     process.exit(1);
   }
   
