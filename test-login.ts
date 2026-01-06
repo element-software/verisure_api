@@ -5,10 +5,19 @@ async function testLogin() {
   
   const client = new SecuritasDirectClient('GB');
   
-  // Use test credentials
+  // SECURITY: Never hardcode credentials. Use environment variables.
+  const username = process.env.SECURITAS_USERNAME;
+  const password = process.env.SECURITAS_PASSWORD;
+  
+  if (!username || !password) {
+    console.error('Error: SECURITAS_USERNAME and SECURITAS_PASSWORD environment variables must be set');
+    console.error('Example: SECURITAS_USERNAME=your-email@example.com SECURITAS_PASSWORD=your-password npm run test-login');
+    process.exit(1);
+  }
+  
   const result = await client.authenticate({
-    username: 'test-user',
-    password: 'test-pass',
+    username,
+    password,
     country: 'GB'
   });
   

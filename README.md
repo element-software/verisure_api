@@ -79,9 +79,11 @@ import { SecuritasDirectClient } from 'securitas-direct-api';
 const client = new SecuritasDirectClient();
 
 // Authenticate
+// SECURITY WARNING: Never hardcode credentials in your code!
+// Use environment variables or secure credential management.
 await client.authenticate({
-  username: 'your-username',
-  password: 'your-password'
+  username: process.env.SECURITAS_USERNAME || '',
+  password: process.env.SECURITAS_PASSWORD || ''
 });
 
 // Get installations
@@ -136,9 +138,10 @@ The CLI stores configuration in `~/.securitas-config.json`:
 Authenticate with Securitas Direct API.
 
 ```typescript
+// SECURITY WARNING: Use environment variables, not hardcoded credentials!
 const result = await client.authenticate({
-  username: 'user@example.com',
-  password: 'password'
+  username: process.env.SECURITAS_USERNAME || '',
+  password: process.env.SECURITAS_PASSWORD || ''
 });
 ```
 
@@ -234,13 +237,17 @@ interface CommandResponse {
 
 ## Security Notes
 
-⚠️ **Important**: 
+⚠️ **CRITICAL - Credential Security**: 
+- **NEVER hardcode credentials** in your source code
+- **ALWAYS use environment variables** for sensitive data
 - The CLI stores credentials locally in `~/.securitas-config.json`
 - For production use, consider:
-  - Using environment variables for credentials
-  - Implementing credential encryption
+  - Using environment variables for credentials (recommended)
+  - Implementing credential encryption for stored credentials
   - Using OAuth or token-based authentication
   - Running the CLI in a secure environment
+  - Setting appropriate file permissions on config files (chmod 600)
+  - Never committing `.env` files or credentials to version control
 
 ## Error Handling
 
