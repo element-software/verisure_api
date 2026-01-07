@@ -69,10 +69,13 @@ const client = new SecuritasDirectClient();
 ```
 
 ### Step 2: Authenticate
+
+**SECURITY WARNING:** Never hardcode credentials in your code! Always use environment variables.
+
 ```typescript
 const result = await client.authenticate({
-  username: 'your-email@example.com',
-  password: 'your-password',
+  username: process.env.SECURITAS_USERNAME || '',
+  password: process.env.SECURITAS_PASSWORD || '',
 });
 
 if (!result.success) {
@@ -142,10 +145,17 @@ Your credentials and settings are automatically saved in:
 ~/.securitas-config.json
 ```
 
+**⚠️ SECURITY WARNING:**
 This file contains:
 - Your username
-- Your password (stored in plain text - use with caution)
+- Your password (stored in plain text - HIGH SECURITY RISK)
 - Your last used installation ID
+
+**Recommendations:**
+- Set file permissions: `chmod 600 ~/.securitas-config.json`
+- Consider using environment variables instead
+- Never commit this file to version control
+- Be aware this file contains sensitive credentials in plain text
 
 ## Troubleshooting
 

@@ -69,6 +69,11 @@ Use in your own TypeScript/JavaScript projects:
 import { SecuritasDirectClient } from 'securitas-direct-api';
 
 const client = new SecuritasDirectClient();
+
+// SECURITY: Always use environment variables for credentials
+const username = process.env.SECURITAS_USERNAME || '';
+const password = process.env.SECURITAS_PASSWORD || '';
+
 await client.authenticate({ username, password });
 const status = await client.getStatus(installationId);
 ```
@@ -119,12 +124,18 @@ The CLI automatically saves your preferences to:
 ~/.securitas-config.json
 ```
 
+**⚠️ SECURITY WARNING:**
 Contains:
 - Your Securitas Direct username
-- Your password (for convenience - use with caution)
+- Your password (stored in PLAIN TEXT - HIGH SECURITY RISK)
 - Last used installation ID
 
-You can delete this file anytime to reset preferences.
+**Security Recommendations:**
+- Set restrictive file permissions: `chmod 600 ~/.securitas-config.json`
+- Consider using environment variables instead of stored credentials
+- Never commit this file to version control
+- Delete this file when not in use: credentials stored in plain text
+- Be aware that anyone with access to your account can read these credentials
 
 ## 🔒 Security Notes
 

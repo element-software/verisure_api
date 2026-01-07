@@ -12,9 +12,20 @@ async function main() {
 
     // Authenticate
     console.log('1. Authenticating...');
+    
+    // SECURITY: Never hardcode credentials. Use environment variables.
+    const username = process.env.SECURITAS_USERNAME;
+    const password = process.env.SECURITAS_PASSWORD;
+    
+    if (!username || !password) {
+      console.error('Error: SECURITAS_USERNAME and SECURITAS_PASSWORD environment variables must be set');
+      console.error('Please set these environment variables before running this example');
+      return;
+    }
+    
     const authResult = await client.authenticate({
-      username: 'admin', // Replace with your username
-      password: 'test', // Replace with your password
+      username,
+      password,
       country: 'GB',
     });
 

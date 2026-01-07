@@ -20,12 +20,14 @@ All API calls now use GraphQL mutations and queries:
 
 **Login (Mutation):**
 ```typescript
+// SECURITY NOTE: Example values shown below for documentation purposes only.
+// NEVER use these credentials - they are for illustration of the API structure.
 {
   operationName: "mkLoginToken",
   variables: {
-    user: "admin",
-    password: "test",
-    id: "OWA_______________admin_______________20260102011000",
+    user: "user@example.com",  // Use environment variable
+    password: "***",            // Use environment variable
+    id: "OWA_______________user@example.com_______________20260102011000",
     country: "GB",
     lang: "en",
     callby: "OWA_10",
